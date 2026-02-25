@@ -25,8 +25,7 @@
 - **2026.02.25:** Initial release of LFD code on [Zenodo](https://zenodo.org/records/18772173).
 
 ## ✨ Introduction
-LFD is a latent-compression-free generative diffusion framework for implicit structural modeling.  
-It generates structural models directly in data space, enabling explicit geological constraints and
+LFD is a latent-compression-free generative diffusion framework for implicit structural modeling. It generates structural models directly in data space, enabling explicit geological constraints and
 geophysical regularization during generation, while supporting efficient large-patch Vision Transformer inference.
 
 ![workflow](https://github.com/user-attachments/assets/8bf1941e-8d39-4d80-8e63-9b05cfee6b83)
