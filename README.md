@@ -1,3 +1,8 @@
+<img width="105" height="107" alt="image" src="https://github.com/user-attachments/assets/9e49c1ce-b574-48f3-8eb1-c38d6f470d8a" />
+<img width="102" height="103" alt="image" src="https://github.com/user-attachments/assets/db847cec-1490-4c6a-bfd1-50963f97200c" />
+
+
+
 # Latent-Compression-Free Generative Diffusion with Geological Priors and Geophysical Regularization for Implicit Structural Modeling
 
 🏢 [Computational Interpretation Group (CIG)](https://cig.ustc.edu.cn/main.htm) 
