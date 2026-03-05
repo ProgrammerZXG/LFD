@@ -1,4 +1,5 @@
 <div align="center">
+  
 # Latent-Compression-Free Generative Diffusion with Geological Priors and Geophysical Regularization for Implicit Structural Modeling
 
 🏢 [Computational Interpretation Group (CIG)](https://cig.ustc.edu.cn/main.htm)
