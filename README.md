@@ -9,6 +9,7 @@
 [Yimin Dou](https://cig.ustc.edu.cn/yimin/list.htm)<sup>123</sup>,
 [Hui Gao](https://cig.ustc.edu.cn/hui/list.htm)<sup>123</sup>,
 [Guillaume Caumon](https://www.ring-team.org/home/team?view=user&id=12&start=0)<sup>45</sup>
+</div>
 
 <b>🏛 Affiliations</b>
 
@@ -21,8 +22,6 @@
 <sup>4</sup> Université de Lorraine, CNRS, GeoRessources, F-54000 Nancy, France
 
 <sup>5</sup> Institut Universitaire de France (IUF), Paris, France
-
-</div>
 
 
 ## 📰 News
