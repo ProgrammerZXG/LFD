@@ -54,3 +54,6 @@ G.C. acknowledges the sponsors of the RING Consortium (ring-team.org/consortium)
 ## :postbox: Contact
 If you have any questions about this work, 
 please feel free to contact xinmwu@ustc.edu.cn or zxg3@mail.ustc.edu.cn.
+
+## 📄 License
+This project is licensed under the MIT License.
