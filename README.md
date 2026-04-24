@@ -41,7 +41,16 @@ geophysical regularization during generation, while supporting efficient large-p
 Coming soon.
 
 ## :bookmark: Citation
-Coming soon.
+@Article{egusphere-2026-1087,
+AUTHOR = {Guo, Z. and Wu, X. and Dou, Y. and Gao, H. and Caumon, G.},
+TITLE = {LFD (v1.0): Latent-Compression-Free Generative Diffusion with Geological Priors and Geophysical Regularization for Implicit Structural Modeling},
+JOURNAL = {EGUsphere},
+VOLUME = {2026},
+YEAR = {2026},
+PAGES = {1--20},
+URL = {https://egusphere.copernicus.org/preprints/2026/egusphere-2026-1087/},
+DOI = {10.5194/egusphere-2026-1087}
+}
 
 ## :memo: Acknowledgment
 This study was financially supported 
