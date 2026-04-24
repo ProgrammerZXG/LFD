@@ -25,7 +25,7 @@
 
 
 ## 📰 News
-- **2026.04.24:** The article has been preprinted: https://egusphere.copernicus.org/preprints/2026/egusphere-2026-1087/
+- **2026.04.24:** The article has been preprinted on [egusphere](https://egusphere.copernicus.org/preprints/2026/egusphere-2026-1087/).
 - **2026.02.25:** Initial release of LFD code on [Zenodo](https://zenodo.org/records/18772173).
 
 ## ✨ Introduction
