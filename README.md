@@ -13,7 +13,7 @@
 
 <b>🏛 Affiliations</b>
 
-<sup>1</sup> Laboratory of Seismology and Physics of the Earth’s Interior, School of Earth and Space Sciences, University of Science and Technology of China, Hefei, 230026, China
+<sup>1</sup> Laboratory of Seismology and Physics of the Earth's Interior, School of Earth and Space Sciences, University of Science and Technology of China, Hefei, 230026, China
 
 <sup>2</sup> State Key Laboratory of Precision Geodesy, University of Science and Technology of China, Hefei, 230026, China
 
@@ -50,7 +50,7 @@ conda activate jit
 
 ### 2. Download Pretrained Model
 
-Download the pretrained model weights from [USTC](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a) and place the checkpoint under the `model/` directory:
+Download the pretrained model weights from [USTC Pan](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a) and place the checkpoint under the `model/` directory:
 
 ```
 LFD/
@@ -99,6 +99,16 @@ Then launch training:
 bash train.sh
 ```
 
+### 5. Run Evaluation
+
+To batch-generate results from dataset conditions and assess model quality, first place the dataset under `training_data/` (same as training), then run:
+
+```bash
+bash eval.sh
+```
+
+Configure `CKPT_DIR` in `eval.sh` to point to the model you want to evaluate. Generated samples will be saved under the checkpoint directory.
+
 ## 🧠 Model
 
 | Model | VAE | Diffusion | Total |
@@ -106,6 +116,7 @@ bash train.sh
 | [LFD (ViT-B/32)](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a) | – | 145.42 M | **145.42 M** |
 
 ## :bookmark: Citation
+```bibtex
 @Article{egusphere-2026-1087,
 AUTHOR = {Guo, Z. and Wu, X. and Dou, Y. and Gao, H. and Caumon, G.},
 TITLE = {LFD (v1.0): Latent-Compression-Free Generative Diffusion with Geological Priors and Geophysical Regularization for Implicit Structural Modeling},
@@ -116,6 +127,7 @@ PAGES = {1--20},
 URL = {https://egusphere.copernicus.org/preprints/2026/egusphere-2026-1087/},
 DOI = {10.5194/egusphere-2026-1087}
 }
+```
 
 ## :memo: Acknowledgment
 This study was financially supported 
