@@ -37,27 +37,6 @@ geophysical regularization during generation, while supporting efficient large-p
 
 ##  🚀 Quick Start
 
-### Training
-
-Training data: xxx (coming soon). Place the dataset under `training_data/`:
-
-```
-LFD/
-└── training_data/
-    └── lfd_dataset/
-```
-
-Configure the following variables in `train.sh` before running:
-
-- `PRETRAIN_CKPT` — path to the pretrained base model checkpoint
-- `OUTPUT_DIR` — directory where trained model checkpoints will be saved
-
-Then launch training:
-
-```bash
-bash train.sh
-```
-
 ### 1. Install Dependencies
 
 Clone the repository and create the conda environment:
@@ -97,6 +76,27 @@ python inference.py \
     --out ./output \
     --num_samples 20 \
     --cfg 2.0
+```
+
+### 4. Run Training
+
+Training data: xxx (coming soon). Place the dataset under `training_data/`:
+
+```
+LFD/
+└── training_data/
+    └── lfd_dataset/
+```
+
+Configure the following variables in `train.sh` before running:
+
+- `PRETRAIN_CKPT` — path to the pretrained base model checkpoint
+- `OUTPUT_DIR` — directory where trained model checkpoints will be saved
+
+Then launch training:
+
+```bash
+bash train.sh
 ```
 
 ## 🧠 Model
