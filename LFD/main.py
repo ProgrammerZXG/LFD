@@ -113,7 +113,6 @@ class GeoDataset(Dataset):
         if self.num_channels > 1:
             tensor = tensor.repeat(self.num_channels, 1, 1)
 
-        # label = torch.tensor(self.valid_keys.index(key)).long()
         label = torch.tensor(0).long()
         return tensor, label
     
@@ -406,11 +405,9 @@ def main(args):
         model_without_ddp.ema_params2 = copy.deepcopy(list(model_without_ddp.parameters()))
         print("Training from scratch")
 
-    # Evaluate generation (use validation fx as condition)
     if args.evaluate_gen:
         print("Evaluating checkpoint at {} epoch".format(args.start_epoch))
 
-        # —— Use validation set as condition —— 
         dataset_val = GeoDataset(
             data_path=args.data_path,
             target_key=args.target,   # 'rgt'
@@ -418,7 +415,7 @@ def main(args):
             random_crop=False,
             random_flip=False,
             normalize=True,
-            split='valid',            # ★ Change to your validation set subdirectory name: valid / val / test
+            split='train',      
             num_channels=1,
         )
 

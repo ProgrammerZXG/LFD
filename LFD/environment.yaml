@@ -1,8 +1,8 @@
 name: jit
 channels:
   - pytorch
-  - defaults
   - nvidia
+  - defaults
 dependencies:
   - python=3.10
   - pip=22.3

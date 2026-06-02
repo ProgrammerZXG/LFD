@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export CUDA_VISIBLE_DEVICES=0,1,2
+export CUDA_VISIBLE_DEVICES=0
 
-PRETRAIN_CKPT="./pretrain/jitb_32/checkpoint-last.pth"
-IMAGENET_PATH="xxx/data/2dAll/"
-OUTPUT_DIR="./result/lfd_rgt_10abshrzloss_0.1bending"
+PRETRAIN_CKPT="./model/LFD_test/checkpoint-last.pth"
+IMAGENET_PATH="./training_data/lfd_dataset/"
+OUTPUT_DIR="./result/lfd_rgt_test"
 CONDITION="fx","hrz"
 TARGET="rgt"
 
-torchrun --nproc_per_node=3 --nnodes=1 --node_rank=0 --master_port=29505 \
+torchrun --nproc_per_node=1 --nnodes=1 --node_rank=0 --master_port=29505 \
 main.py \
 --model LFD-B/32 \
 --proj_dropout 0.0 \
