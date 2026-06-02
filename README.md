@@ -50,7 +50,7 @@ conda activate jit
 
 ### 2. Download Pretrained Model
 
-Download the pretrained model weights from [Google Drive](https://drive.google.com/drive/folders/1hxoQLBrOPhNTyuqPK83u7eh2reJ8nEMC?usp=drive_link) and place the checkpoint under the `model/` directory:
+Download the pretrained model weights from [USTC Pan](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a) and place the checkpoint under the `model/` directory:
 
 ```
 LFD/
@@ -84,7 +84,7 @@ python inference.py \
 |-------|-----|-----------|-------|
 | LFD (ViT-B/32) | – | 145.42 M | **145.42 M** |
 
-The pretrained model is available at [Google Drive](https://drive.google.com/drive/folders/1hxoQLBrOPhNTyuqPK83u7eh2reJ8nEMC?usp=drive_link).
+The pretrained model is available at [USTC Pan](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a).
 
 ## :bookmark: Citation
 @Article{egusphere-2026-1087,
