@@ -80,7 +80,7 @@ python inference.py \
 
 ### 4. Run Training
 
-Training data: xxx (coming soon). Place the dataset under `training_data/`:
+To run training, download the dataset from xxx (coming soon) and place it under `training_data/`:
 
 ```
 LFD/
