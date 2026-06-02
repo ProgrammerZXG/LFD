@@ -80,6 +80,10 @@ python inference.py \
 
 ## 🧠 Model
 
+| Model | VAE | Diffusion | Total |
+|-------|-----|-----------|-------|
+| LFD (ViT-B/32) | – | 145.42 M | **145.42 M** |
+
 The pretrained model is available at [Google Drive](https://drive.google.com/drive/folders/1hxoQLBrOPhNTyuqPK83u7eh2reJ8nEMC?usp=drive_link).
 
 ## :bookmark: Citation
