@@ -5,6 +5,7 @@ Usage: python gui/app.py  (run from the LFD/ sub-directory, i.e. cd LFD && pytho
 
 import sys
 import os
+import io
 import math
 import threading
 import tkinter as tk
@@ -63,15 +64,20 @@ CANVAS_SIZE = 512   # logical size of the drawing canvas
 class DrawingCanvas(tk.Canvas):
     """Left-side canvas for drawing faults (lines) and horizons (curves)."""
 
-    def __init__(self, master, size=CANVAS_SIZE, **kwargs):
+    def __init__(self, master, size=CANVAS_SIZE, canvas_bg="#FFFFFF", **kwargs):
         super().__init__(master, width=size, height=size,
-                         bg="#1a1a2e", cursor="crosshair", **kwargs)
+                         bg=canvas_bg, cursor="crosshair", **kwargs)
         self.size   = size
         self.mode   = None          # "fault" | "horizon" | None
         self.faults  = []           # list of (x0,y0,x1,y1)
-        self.horizons = []          # list of list-of-(x,y) raw points
-        self._fault_first = None    # first click point for fault mode
-        self._horizon_pts = []      # accumulating points in horizon mode
+
+        # horizons: list of completed horizons, each horizon = list of strokes,
+        # each stroke = list of (x,y) points
+        self.horizons = []          # [ [ [(x,y),...], [(x,y),...] ], ... ]
+        self._current_strokes = []  # strokes of the horizon being built
+        self._live_pts = []         # points of the stroke currently being drawn
+
+        self._fault_first = None
         self._preview_line = None
 
         self.bind("<Button-1>",       self._on_click)
@@ -81,51 +87,64 @@ class DrawingCanvas(tk.Canvas):
 
     # ── Public API ────────────────────────────────────────────────────────────
     def set_mode(self, mode):
-        """Set drawing mode: 'fault', 'horizon', or None."""
         self.mode = mode
         self._fault_first = None
-        self._horizon_pts = []
+        self._live_pts = []
         if self._preview_line:
             self.delete(self._preview_line)
             self._preview_line = None
 
-    def smooth_last_horizon(self):
+    def end_horizon(self):
+        """Commit the current in-progress horizon (may have multiple strokes)."""
+        if self._current_strokes:
+            self.horizons.append(list(self._current_strokes))
+            self._current_strokes = []
+        self._live_pts = []
+        self.mode = None
+        self._redraw()
+
+    def has_active_horizon(self):
+        return bool(self._current_strokes) or self.mode == "horizon"
+
+    def smooth_current_horizon(self):
+        """Smooth each stroke of the horizon currently being built."""
+        smoothed = []
+        for stroke in self._current_strokes:
+            smoothed.append(_smooth_stroke(stroke))
+        self._current_strokes = smoothed
+        self._redraw()
+
+    def smooth_last_committed(self):
+        """Smooth each stroke of the last committed horizon."""
         if not self.horizons:
             return
-        pts = self.horizons[-1]
-        if len(pts) < 4:
-            return
-        xs = np.array([p[0] for p in pts], dtype=float)
-        ys = np.array([p[1] for p in pts], dtype=float)
-        xs = scipy.ndimage.gaussian_filter1d(xs, sigma=5)
-        ys = scipy.ndimage.gaussian_filter1d(ys, sigma=5)
-        self.horizons[-1] = list(zip(xs.tolist(), ys.tolist()))
+        self.horizons[-1] = [_smooth_stroke(s) for s in self.horizons[-1]]
         self._redraw()
 
     def clear_all(self):
         self.faults.clear()
         self.horizons.clear()
+        self._current_strokes = []
+        self._live_pts = []
         self._fault_first = None
-        self._horizon_pts = []
         self._preview_line = None
         self.delete("all")
 
     def to_numpy(self):
-        """Convert drawn strokes → fx [H,W] and hrz [H,W] arrays (0/1 labels)."""
+        """Convert drawn strokes → fx [H,W] and hrz [H,W] arrays."""
         fx  = np.zeros((self.size, self.size), dtype=np.float32)
         hrz = np.zeros((self.size, self.size), dtype=np.float32)
 
-        # Draw faults
         for (x0, y0, x1, y1) in self.faults:
             _draw_line_on_array(fx, int(x0), int(y0), int(x1), int(y1), value=1.0, thickness=3)
 
-        # Draw horizons (each gets a unique integer label)
-        for idx, pts in enumerate(self.horizons, start=1):
-            for i in range(len(pts) - 1):
-                x0, y0 = pts[i]
-                x1, y1 = pts[i+1]
-                _draw_line_on_array(hrz, int(x0), int(y0), int(x1), int(y1),
-                                    value=float(idx), thickness=3)
+        # Each horizon gets a unique integer label; strokes within same horizon share label
+        for idx, strokes in enumerate(self.horizons, start=1):
+            for stroke in strokes:
+                for i in range(len(stroke) - 1):
+                    x0, y0 = stroke[i]; x1, y1 = stroke[i+1]
+                    _draw_line_on_array(hrz, int(x0), int(y0), int(x1), int(y1),
+                                        value=float(idx), thickness=3)
         return fx, hrz
 
     # ── Event handlers ────────────────────────────────────────────────────────
@@ -142,22 +161,21 @@ class DrawingCanvas(tk.Canvas):
                     self.delete(self._preview_line)
                     self._preview_line = None
                 self._redraw()
-                self.mode = None   # one fault per click of "Add Fault" button
-
+                self.mode = None
         elif self.mode == "horizon":
-            self._horizon_pts = [(x, y)]
+            self._live_pts = [(x, y)]
 
     def _on_drag(self, event):
-        if self.mode == "horizon" and self._horizon_pts:
-            self._horizon_pts.append((event.x, event.y))
+        if self.mode == "horizon" and self._live_pts:
+            self._live_pts.append((event.x, event.y))
             self._redraw_live()
 
     def _on_release(self, event):
-        if self.mode == "horizon" and len(self._horizon_pts) >= 2:
-            self.horizons.append(list(self._horizon_pts))
-            self._horizon_pts = []
-            self.mode = None
+        if self.mode == "horizon" and len(self._live_pts) >= 2:
+            self._current_strokes.append(list(self._live_pts))
+            self._live_pts = []
             self._redraw()
+            # Stay in horizon mode so user can draw more strokes
 
     def _on_motion(self, event):
         if self.mode == "fault" and self._fault_first:
@@ -169,34 +187,48 @@ class DrawingCanvas(tk.Canvas):
                 fill="#ff4444", width=2, dash=(6, 3))
 
     # ── Drawing helpers ───────────────────────────────────────────────────────
+    def _horizon_color(self, idx):
+        return HORIZON_COLORS[idx % len(HORIZON_COLORS)]
+
     def _redraw(self):
         self.delete("all")
-        # Faults
         for (x0, y0, x1, y1) in self.faults:
-            self.create_line(x0, y0, x1, y1, fill="#ff4444", width=3)
-        # Horizons
-        for idx, pts in enumerate(self.horizons):
-            color = HORIZON_COLORS[idx % len(HORIZON_COLORS)]
-            if len(pts) >= 2:
-                flat = [coord for p in pts for coord in p]
-                self.create_line(*flat, fill=color, width=2, smooth=True)
-        # In-progress horizon
-        if self._horizon_pts and len(self._horizon_pts) >= 2:
-            color = HORIZON_COLORS[len(self.horizons) % len(HORIZON_COLORS)]
-            flat = [coord for p in self._horizon_pts for coord in p]
-            self.create_line(*flat, fill=color, width=2, smooth=True)
+            self.create_line(x0, y0, x1, y1, fill="#e74c3c", width=3)
+        for idx, strokes in enumerate(self.horizons):
+            color = self._horizon_color(idx)
+            for stroke in strokes:
+                if len(stroke) >= 2:
+                    flat = [c for p in stroke for c in p]
+                    self.create_line(*flat, fill=color, width=2, smooth=True)
+        # In-progress horizon (committed strokes + live stroke)
+        if self._current_strokes or self._live_pts:
+            n = len(self.horizons)
+            color = self._horizon_color(n)
+            for stroke in self._current_strokes:
+                if len(stroke) >= 2:
+                    flat = [c for p in stroke for c in p]
+                    self.create_line(*flat, fill=color, width=2, smooth=True)
 
     def _redraw_live(self):
-        """Lightweight redraw: keep existing items, only update live stroke."""
         self.delete("live_stroke")
-        if self._horizon_pts and len(self._horizon_pts) >= 2:
-            color = HORIZON_COLORS[len(self.horizons) % len(HORIZON_COLORS)]
-            flat = [coord for p in self._horizon_pts for coord in p]
+        if len(self._live_pts) >= 2:
+            n = len(self.horizons)
+            color = self._horizon_color(n)
+            flat = [c for p in self._live_pts for c in p]
             self.create_line(*flat, fill=color, width=2,
                              smooth=True, tags="live_stroke")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+def _smooth_stroke(stroke, sigma=5):
+    """Gaussian-smooth a single stroke (list of (x,y) tuples)."""
+    if len(stroke) < 4:
+        return stroke
+    xs = scipy.ndimage.gaussian_filter1d([p[0] for p in stroke], sigma=sigma)
+    ys = scipy.ndimage.gaussian_filter1d([p[1] for p in stroke], sigma=sigma)
+    return list(zip(xs.tolist(), ys.tolist()))
+
+
 def _draw_line_on_array(arr, x0, y0, x1, y1, value=1.0, thickness=3):
     """Bresenham line onto a 2-D numpy array (row=y, col=x)."""
     H, W = arr.shape
@@ -229,16 +261,32 @@ class LFDApp(tk.Tk):
 
         self._build_ui()
         self._generated_images = []
+        self._raw_preds = []       # list of np arrays [H,W]
+        self._cond_arrays = {}     # {"fx": np, "hrz": np}
 
     # ── UI Layout ─────────────────────────────────────────────────────────────
     def _build_ui(self):
         # ── Top toolbar ──────────────────────────────────────────────────────
-        toolbar = tk.Frame(self, bg="#16213e", pady=6)
+        BG       = "#D4DFE6"   # main background
+        TOOLBAR  = "#2C3E50"   # toolbar background
+        BTN_BG   = "#B8C9D4"   # normal button
+        BTN_HOV  = "#9DB4C0"   # button hover
+        BTN_GEN  = "#2ECC71"   # generate button
+        BTN_GENH = "#27AE60"
+        FG_LIGHT = "#1A252F"   # dark text on light buttons
+        FG_LABEL = "#2C3E50"   # dark text on light bg
+        FG_SUB   = "#5D6D7E"   # secondary label
+        ACCENT   = "#2980B9"   # accent / separator
+        CANVAS_BG = "#FFFFFF"  # drawing canvas white
+
+        self.configure(bg=BG)
+
+        toolbar = tk.Frame(self, bg=TOOLBAR, pady=6)
         toolbar.pack(side=tk.TOP, fill=tk.X)
 
-        btn_style = dict(bg="#0f3460", fg="white", relief=tk.FLAT,
+        btn_style = dict(bg=BTN_BG, fg=FG_LIGHT, relief=tk.FLAT,
                          padx=12, pady=4, font=("Helvetica", 11, "bold"),
-                         activebackground="#533483", activeforeground="white",
+                         activebackground=BTN_HOV, activeforeground=FG_LIGHT,
                          cursor="hand2")
 
         self.btn_fault = tk.Button(toolbar, text="＋ Add Fault",
@@ -249,7 +297,15 @@ class LFDApp(tk.Tk):
                                      command=self._start_horizon, **btn_style)
         self.btn_horizon.pack(side=tk.LEFT, padx=6)
 
-        self.btn_smooth = tk.Button(toolbar, text="⌁ Smooth Last Horizon",
+        self.btn_end_horizon = tk.Button(toolbar, text="✔ End Horizon",
+                                         command=self._end_horizon,
+                                         bg="#5D6D7E", fg=FG_LIGHT, relief=tk.FLAT,
+                                         padx=12, pady=4, font=("Helvetica", 11, "bold"),
+                                         activebackground="#4A5568", activeforeground=FG_LIGHT,
+                                         cursor="hand2", state=tk.DISABLED)
+        self.btn_end_horizon.pack(side=tk.LEFT, padx=6)
+
+        self.btn_smooth = tk.Button(toolbar, text="⌁ Smooth",
                                     command=self._smooth_horizon, **btn_style)
         self.btn_smooth.pack(side=tk.LEFT, padx=6)
 
@@ -258,92 +314,118 @@ class LFDApp(tk.Tk):
         self.btn_clear.pack(side=tk.LEFT, padx=6)
 
         # Separator
-        tk.Frame(toolbar, bg="#533483", width=2).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        tk.Frame(toolbar, bg=ACCENT, width=2).pack(side=tk.LEFT, fill=tk.Y, padx=8)
 
-        tk.Label(toolbar, text="Samples:", bg="#16213e", fg="#aaa",
+        tk.Label(toolbar, text="Samples:", bg=TOOLBAR, fg="#ECF0F1",
                  font=("Helvetica", 11)).pack(side=tk.LEFT)
-        self.n_samples_var = tk.IntVar(value=10)
+        self.n_samples_var = tk.IntVar(value=1)
         spin = ttk.Spinbox(toolbar, from_=1, to=50, width=4,
                            textvariable=self.n_samples_var, font=("Helvetica", 11))
         spin.pack(side=tk.LEFT, padx=4)
 
-        tk.Label(toolbar, text="CFG:", bg="#16213e", fg="#aaa",
+        tk.Label(toolbar, text="CFG:", bg=TOOLBAR, fg="#ECF0F1",
                  font=("Helvetica", 11)).pack(side=tk.LEFT, padx=(8,0))
-        self.cfg_var = tk.DoubleVar(value=2.0)
+        self.cfg_var = tk.DoubleVar(value=1.0)
         cfg_spin = ttk.Spinbox(toolbar, from_=0.5, to=10.0, increment=0.5,
                                 width=5, textvariable=self.cfg_var,
                                 font=("Helvetica", 11))
         cfg_spin.pack(side=tk.LEFT, padx=4)
 
+        tk.Label(toolbar, text="Steps:", bg=TOOLBAR, fg="#ECF0F1",
+                 font=("Helvetica", 11)).pack(side=tk.LEFT, padx=(8,0))
+        self.steps_var = tk.IntVar(value=20)
+        steps_spin = ttk.Spinbox(toolbar, from_=5, to=100, increment=5,
+                                  width=4, textvariable=self.steps_var,
+                                  font=("Helvetica", 11))
+        steps_spin.pack(side=tk.LEFT, padx=4)
+
+        self.btn_save = tk.Button(toolbar, text="💾 Save Results",
+                                  command=self._save_results,
+                                  bg=BTN_BG, fg=FG_LIGHT, relief=tk.FLAT,
+                                  padx=12, pady=4, font=("Helvetica", 11, "bold"),
+                                  activebackground=BTN_HOV, activeforeground=FG_LIGHT,
+                                  cursor="hand2", state=tk.DISABLED)
+        self.btn_save.pack(side=tk.RIGHT, padx=6)
+
         self.btn_gen = tk.Button(toolbar, text="▶  Generate",
                                  command=self._run_generation,
-                                 bg="#e94560", fg="white", relief=tk.FLAT,
+                                 bg=BTN_GEN, fg=FG_LIGHT, relief=tk.FLAT,
                                  padx=16, pady=4, font=("Helvetica", 11, "bold"),
-                                 activebackground="#c73652", activeforeground="white",
+                                 activebackground=BTN_GENH, activeforeground=FG_LIGHT,
                                  cursor="hand2")
         self.btn_gen.pack(side=tk.RIGHT, padx=10)
 
         # ── Status bar ───────────────────────────────────────────────────────
         self.status_var = tk.StringVar(value="Ready. Draw faults and horizons, then click Generate.")
         status_bar = tk.Label(self, textvariable=self.status_var,
-                              bg="#0a0a1a", fg="#7ec8e3",
+                              bg=TOOLBAR, fg="#ECF0F1",
                               font=("Helvetica", 10), anchor=tk.W, padx=8)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
         # ── Main area ────────────────────────────────────────────────────────
-        main = tk.Frame(self, bg="#0f0f23")
+        main = tk.Frame(self, bg=BG)
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
         # Left panel: drawing canvas
-        left = tk.Frame(main, bg="#0f0f23")
+        left = tk.Frame(main, bg=BG)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 8))
 
-        tk.Label(left, text="Conditions", bg="#0f0f23", fg="#ccc",
+        tk.Label(left, text="Conditions", bg=BG, fg=FG_LABEL,
                  font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0,4))
 
         self.canvas = DrawingCanvas(left, size=CANVAS_SIZE,
+                                    canvas_bg=CANVAS_BG,
                                     highlightthickness=2,
-                                    highlightbackground="#533483")
+                                    highlightbackground=ACCENT)
         self.canvas.pack()
 
         # Mode indicator
         self.mode_label = tk.Label(left, text="Mode: —",
-                                   bg="#0f0f23", fg="#7ec8e3",
+                                   bg=BG, fg=FG_SUB,
                                    font=("Helvetica", 10))
         self.mode_label.pack(anchor=tk.W, pady=(4,0))
 
         # Legend
-        legend = tk.Frame(left, bg="#0f0f23")
+        legend = tk.Frame(left, bg=BG)
         legend.pack(anchor=tk.W, pady=4)
-        tk.Canvas(legend, width=18, height=4, bg="#ff4444",
+        tk.Canvas(legend, width=18, height=4, bg="#e74c3c",
                   highlightthickness=0).pack(side=tk.LEFT)
-        tk.Label(legend, text=" Fault", bg="#0f0f23", fg="#ccc",
+        tk.Label(legend, text=" Fault", bg=BG, fg=FG_LABEL,
                  font=("Helvetica", 10)).pack(side=tk.LEFT, padx=(0,10))
-        tk.Canvas(legend, width=18, height=4, bg="#4CAF50",
+        tk.Canvas(legend, width=18, height=4, bg="#27ae60",
                   highlightthickness=0).pack(side=tk.LEFT)
-        tk.Label(legend, text=" Horizon", bg="#0f0f23", fg="#ccc",
+        tk.Label(legend, text=" Horizon", bg=BG, fg=FG_LABEL,
                  font=("Helvetica", 10)).pack(side=tk.LEFT)
 
         # Right panel: results
-        right = tk.Frame(main, bg="#0f0f23")
+        right = tk.Frame(main, bg=BG)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        tk.Label(right, text="Generated Models", bg="#0f0f23", fg="#ccc",
-                 font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0,4))
+        result_header = tk.Frame(right, bg=BG)
+        result_header.pack(fill=tk.X, pady=(0,4))
+        tk.Label(result_header, text="Generated Models", bg=BG, fg=FG_LABEL,
+                 font=("Helvetica", 11, "bold")).pack(side=tk.LEFT)
+        self.btn_clear_results = tk.Button(result_header, text="✕ Clear Results",
+                                           command=self._clear_results,
+                                           bg=BTN_BG, fg=FG_LIGHT, relief=tk.FLAT,
+                                           padx=8, pady=2, font=("Helvetica", 10),
+                                           activebackground=BTN_HOV, activeforeground=FG_LIGHT,
+                                           cursor="hand2")
+        self.btn_clear_results.pack(side=tk.RIGHT)
 
         # Scrollable frame for results
-        self.result_frame_outer = tk.Frame(right, bg="#0f0f23")
+        self.result_frame_outer = tk.Frame(right, bg=BG)
         self.result_frame_outer.pack(fill=tk.BOTH, expand=True)
 
         self.result_canvas = tk.Canvas(self.result_frame_outer,
-                                       bg="#0f0f23", highlightthickness=0)
+                                       bg=BG, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.result_frame_outer, orient=tk.VERTICAL,
                                   command=self.result_canvas.yview)
         self.result_canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.result_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.result_inner = tk.Frame(self.result_canvas, bg="#0f0f23")
+        self.result_inner = tk.Frame(self.result_canvas, bg=BG)
         self.result_canvas_window = self.result_canvas.create_window(
             (0, 0), window=self.result_inner, anchor=tk.NW)
 
@@ -352,6 +434,7 @@ class LFDApp(tk.Tk):
 
         # Progress bar (hidden until generation starts)
         self.progress = ttk.Progressbar(right, mode="indeterminate", length=300)
+        self._BG = BG
 
     # ── Button callbacks ──────────────────────────────────────────────────────
     def _start_fault(self):
@@ -361,18 +444,78 @@ class LFDApp(tk.Tk):
 
     def _start_horizon(self):
         self.canvas.set_mode("horizon")
-        self.mode_label.config(text="Mode: Horizon — drag to draw")
-        self.status_var.set("Horizon mode: hold and drag to draw a curve.")
+        self.btn_end_horizon.config(state=tk.NORMAL)
+        self.mode_label.config(text="Mode: Horizon — drag to draw, End Horizon when done")
+        self.status_var.set("Horizon mode: drag to draw strokes; click End Horizon to finish this horizon.")
+
+    def _end_horizon(self):
+        self.canvas.end_horizon()
+        self.btn_end_horizon.config(state=tk.DISABLED)
+        self.mode_label.config(text="Mode: —")
+        self.status_var.set(f"Horizon committed. Total horizons: {len(self.canvas.horizons)}.")
 
     def _smooth_horizon(self):
-        self.canvas.smooth_last_horizon()
-        self.status_var.set("Last horizon smoothed.")
+        if self.canvas.has_active_horizon():
+            self.canvas.smooth_current_horizon()
+            self.status_var.set("Current horizon strokes smoothed.")
+        else:
+            self.canvas.smooth_last_committed()
+            self.status_var.set("Last horizon smoothed.")
 
     def _clear(self):
+        """Clear everything: canvas + results."""
         self.canvas.clear_all()
         self.canvas.set_mode(None)
+        self.btn_end_horizon.config(state=tk.DISABLED)
         self.mode_label.config(text="Mode: —")
-        self.status_var.set("Canvas cleared.")
+        self._clear_results()
+        self.status_var.set("Cleared.")
+
+    def _clear_results(self):
+        for w in self.result_inner.winfo_children():
+            w.destroy()
+        self._generated_images.clear()
+        self._raw_preds.clear()
+        self._cond_arrays.clear()
+        self.btn_save.config(state=tk.DISABLED)
+        self.status_var.set("Results cleared.")
+
+    def _save_results(self):
+        if not self._raw_preds:
+            return
+        from tkinter import filedialog
+        out_dir = filedialog.askdirectory(title="Select folder to save results")
+        if not out_dir:
+            return
+        out_path = Path(out_dir)
+
+        strata_cmap = get_strata_colors()
+        hrz_norm = self._cond_arrays.get("hrz")
+        black_cmap = ListedColormap(["black"])
+        black_cmap.set_bad(alpha=0)
+
+        for i, pred in enumerate(self._raw_preds):
+            # Save npy
+            np.save(str(out_path / f"sample_{i:03d}.npy"), pred)
+            # Save png
+            fig, ax = plt.subplots(figsize=(3, 3), dpi=100)
+            ax.imshow(pred, cmap=strata_cmap, vmin=-1, vmax=1)
+            if hrz_norm is not None:
+                ax.imshow(np.ma.masked_where(hrz_norm <= -0.999, hrz_norm),
+                          cmap=black_cmap, vmin=-1, vmax=1, interpolation="nearest")
+            ax.axis("off")
+            fig.tight_layout(pad=0)
+            fig.savefig(str(out_path / f"sample_{i:03d}.png"), dpi=100,
+                        bbox_inches="tight", pad_inches=0)
+            plt.close(fig)
+
+        # Save condition masks
+        if "fx" in self._cond_arrays:
+            np.save(str(out_path / "cond_fx.npy"), self._cond_arrays["fx"])
+        if "hrz" in self._cond_arrays:
+            np.save(str(out_path / "cond_hrz.npy"), self._cond_arrays["hrz"])
+
+        self.status_var.set(f"Saved {len(self._raw_preds)} samples + conditions to {out_dir}")
 
     # ── Generation ────────────────────────────────────────────────────────────
     def _run_generation(self):
@@ -426,8 +569,10 @@ class LFDApp(tk.Tk):
             # Stack → [1, 2, 512, 512]
             cond = np.stack([fx, hrz_norm], axis=0)[None].astype(np.float32)
 
-            # MPS (Apple Silicon) has incomplete mixed-precision support; use CPU as fallback
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            if torch.cuda.is_available():
+                device = torch.device("cuda")
+            else:
+                device = torch.device("cpu")
             self.after(0, lambda: self.status_var.set(
                 f"Using device: {device}. Loading model…"))
 
@@ -439,7 +584,7 @@ class LFDApp(tk.Tk):
                 class_num=1, in_channels=1, cond_in_ch=2,
                 P_mean=-1.0, P_std=0.8, noise_scale=0.1, t_eps=5e-2,
                 label_drop_prob=0.0, ema_decay1=0.9999, ema_decay2=0.9996,
-                sampling_method="heun", num_sampling_steps=50,
+                sampling_method="heun", num_sampling_steps=self.steps_var.get(),
                 cfg=cfg, interval_min=0.1, interval_max=1.0,
                 pretrained_base="",
             )
@@ -481,80 +626,56 @@ class LFDApp(tk.Tk):
                     preds_np = _replace_fault(preds_np, fx_thick)
                     all_preds.extend([preds_np[i, 0] for i in range(bs)])
 
-            # ── Save & display ────────────────────────────────────────────────
-            out_dir = LFD_DIR / "output" / "gui_run"
-            out_dir.mkdir(parents=True, exist_ok=True)
-
+            # ── Render to memory only (no auto-save) ─────────────────────────
             strata_cmap = get_strata_colors()
-            fx_m   = np.ma.masked_where(fx_thick  <= -0.999, fx_thick)
-            hrz_m  = np.ma.masked_where(hrz_thick <= -0.999, hrz_thick)
             black_cmap = ListedColormap(["black"])
             black_cmap.set_bad(alpha=0)
 
             tk_images = []
-            for i, pred in enumerate(all_preds):
+            for pred in all_preds:
                 fig, ax = plt.subplots(figsize=(3, 3), dpi=100)
-                ax.imshow(pred,  cmap=strata_cmap, vmin=-1, vmax=1)
+                ax.imshow(pred, cmap=strata_cmap, vmin=-1, vmax=1)
                 ax.imshow(np.ma.masked_where(hrz_norm <= -0.999, hrz_norm),
                           cmap=black_cmap, vmin=-1, vmax=1, interpolation="nearest")
                 ax.axis("off")
                 fig.tight_layout(pad=0)
-
-                png_path = out_dir / f"sample_{i:03d}.png"
-                fig.savefig(str(png_path), dpi=100, bbox_inches="tight", pad_inches=0)
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", dpi=100,
+                            bbox_inches="tight", pad_inches=0)
                 plt.close(fig)
-
-                img = Image.open(str(png_path)).resize((256, 256), Image.LANCZOS)
+                buf.seek(0)
+                img = Image.open(buf).resize((256, 256), Image.LANCZOS).copy()
                 tk_images.append(ImageTk.PhotoImage(img))
 
-            # ── Build summary grid PNG ────────────────────────────────────────
-            cols  = 5
-            rows  = math.ceil(len(all_preds) / cols)
-            fig2, axes = plt.subplots(rows, cols,
-                                      figsize=(cols*3, rows*3))
-            axes = np.array(axes).reshape(-1)
-            for j in range(rows * cols):
-                axes[j].axis("off")
-                if j < len(all_preds):
-                    axes[j].imshow(all_preds[j], cmap=strata_cmap, vmin=-1, vmax=1)
-                    axes[j].imshow(np.ma.masked_where(hrz_norm <= -0.999, hrz_norm),
-                                   cmap=black_cmap, vmin=-1, vmax=1,
-                                   interpolation="nearest")
-                    axes[j].text(0.02, 0.06, f"#{j:03d}",
-                                 transform=axes[j].transAxes, fontsize=9,
-                                 color="white", ha="left", va="bottom",
-                                 bbox=dict(facecolor="black", alpha=0.3,
-                                           pad=1, edgecolor="none"))
-            plt.subplots_adjust(left=0, right=1, bottom=0, top=1,
-                                wspace=0.02, hspace=0.02)
-            grid_path = out_dir / "pred_grid.png"
-            fig2.savefig(str(grid_path), dpi=150, bbox_inches="tight", pad_inches=0)
-            plt.close(fig2)
-
-            self.after(0, lambda: self._show_results(tk_images, str(out_dir)))
+            cond_data = {"fx": fx, "hrz": hrz_norm}
+            self.after(0, lambda: self._show_results(tk_images, all_preds, cond_data))
 
         except Exception as exc:
             import traceback
             tb = traceback.format_exc()
-            self.after(0, lambda: self._generation_error(str(exc), tb))
+            msg = str(exc)
+            self.after(0, lambda m=msg, t=tb: self._generation_error(m, t))
 
-    def _show_results(self, tk_images, out_dir):
+    def _show_results(self, tk_images, raw_preds, cond_data):
         self.progress.stop()
         self.progress.pack_forget()
         self.btn_gen.config(state=tk.NORMAL)
-        self.status_var.set(f"Done! {len(tk_images)} samples saved to {out_dir}")
+        self.btn_save.config(state=tk.NORMAL)
+        self.status_var.set(f"Done! {len(tk_images)} samples generated. Click Save Results to export.")
 
-        self._generated_images = tk_images  # keep references
+        self._generated_images = tk_images
+        self._raw_preds = list(raw_preds)
+        self._cond_arrays = cond_data
 
         cols = 4
         for i, img in enumerate(tk_images):
             r, c = divmod(i, cols)
-            frm = tk.Frame(self.result_inner, bg="#0f0f23",
-                           highlightthickness=1, highlightbackground="#333")
+            frm = tk.Frame(self.result_inner, bg=self._BG,
+                           highlightthickness=1, highlightbackground="#A0B4C0")
             frm.grid(row=r, column=c, padx=4, pady=4)
-            lbl = tk.Label(frm, image=img, bg="#0f0f23")
+            lbl = tk.Label(frm, image=img, bg=self._BG)
             lbl.pack()
-            tk.Label(frm, text=f"#{i:03d}", bg="#0f0f23", fg="#888",
+            tk.Label(frm, text=f"#{i:03d}", bg=self._BG, fg="#5D6D7E",
                      font=("Helvetica", 9)).pack()
 
     def _generation_error(self, msg, tb):

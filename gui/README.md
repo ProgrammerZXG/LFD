@@ -12,24 +12,32 @@ pip install pillow --break-system-packages
 
 ## Usage
 
-Run from the **repository root** (`LFD/` folder containing `LFD/`, `gui/`, etc.):
+Run from the **repository root** (the folder containing `LFD/`, `gui/`, etc.):
 
 ```bash
-cd /path/to/LFD          # the outer repo root
+cd /path/to/LFD          # outer repo root
 conda activate jit
 python gui/app.py
 ```
 
-> The script automatically adds `LFD/` to `sys.path` so it can import the model code.
+> The script automatically adds the `LFD/` subdirectory to `sys.path` so it can import model code.
 
 ## Workflow
 
 | Step | Action |
 |------|--------|
-| 1 | Click **＋ Add Fault** then click two points on the canvas to draw a red fault line. Repeat as needed. |
-| 2 | Click **＋ Add Horizon** then drag the mouse to draw a horizon curve. |
-| 3 | Optionally click **⌁ Smooth Last Horizon** to smooth the most recently drawn horizon. |
-| 4 | Set the number of **Samples** and **CFG** scale in the toolbar. |
-| 5 | Click **▶ Generate** — results appear in the right panel and are saved to `LFD/output/gui_run/`. |
+| 1 | Click **＋ Add Fault** → click two points on the canvas to draw a fault line. Repeat as needed. |
+| 2 | Click **＋ Add Horizon** → drag to draw one or more strokes (strokes can be discontinuous). |
+| 3 | Click **✔ End Horizon** to commit the current horizon. Repeat steps 2–3 for more horizons. |
+| 4 | Optionally click **⌁ Smooth** to smooth the active or last committed horizon. |
+| 5 | Set **Samples**, **CFG**, and **Steps** in the toolbar. Fewer steps = faster but lower quality. |
+| 6 | Click **▶ Generate** — results appear in the right panel. |
+| 7 | Click **💾 Save Results** to export PNG / NPY files and condition masks to a folder of your choice. |
+| 8 | Use **✕ Clear Results** (next to "Generated Models") to clear only the results, or **✕ Clear** in the toolbar to reset everything (canvas + results). |
 
-CUDA is used automatically if available; falls back to CPU otherwise.
+## Notes
+
+- CUDA is used automatically if available; falls back to CPU otherwise.
+- MPS (Apple Silicon) is not supported due to operator compatibility issues.
+- Results are **not** saved automatically — click **Save Results** to export.
+- Saved files per run: `sample_000.png`, `sample_000.npy`, …, `cond_fx.npy`, `cond_hrz.npy`.

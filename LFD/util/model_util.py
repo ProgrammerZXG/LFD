@@ -133,7 +133,10 @@ class VisionRotaryEmbeddingFast(nn.Module):
             self.freqs_cos = freqs.cos().view(-1, freqs.shape[-1]).cpu()
             self.freqs_sin = freqs.sin().view(-1, freqs.shape[-1]).cpu()
 
-    def forward(self, t): return  t * self.freqs_cos + rotate_half(t) * self.freqs_sin
+    def forward(self, t):
+        cos = self.freqs_cos.to(t.device)
+        sin = self.freqs_sin.to(t.device)
+        return t * cos + rotate_half(t) * sin
     
 class RMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
