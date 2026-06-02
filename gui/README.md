@@ -35,6 +35,16 @@ python gui/app.py
 | 7 | Click **💾 Save Results** to export PNG / NPY files and condition masks to a folder of your choice. |
 | 8 | Use **✕ Clear Results** (next to "Generated Models") to clear only the results, or **✕ Clear** in the toolbar to reset everything (canvas + results). |
 
+## Parameter Guide
+
+| Parameter | Default | Recommendation |
+|-----------|---------|----------------|
+| **CFG** | 1.0 | Higher values (2.0–4.0) strengthen condition control, producing results that follow faults and horizons more strictly. |
+| **Samples** | 1 | Set to higher values (e.g. 5–20) to generate multiple diverse realizations at once. |
+| **Steps** | 20 | Set to 50 for best quality. Lower values are faster but may reduce output fidelity. |
+
+> ⚠️ Increasing CFG, Samples, or Steps all raise GPU/CPU computation cost. On CPU, generating 1 sample at 50 steps may take several minutes.
+
 ## Notes
 
 - CUDA is used automatically if available; falls back to CPU otherwise.
