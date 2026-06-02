@@ -36,7 +36,13 @@ geophysical regularization during generation, while supporting efficient large-p
 
 ## 🎬 GUI Demo
 
+```bash
+python gui/app.py
+```
+
 ![GUI Demo](gui.gif)
+
+> To launch the interactive GUI, run `python gui/app.py` from the repository root. See [`gui/README.md`](gui/README.md) for details.
 
 ##  🚀 Quick Start
 
