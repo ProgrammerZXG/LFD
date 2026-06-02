@@ -34,6 +34,9 @@ geophysical regularization during generation, while supporting efficient large-p
 
 ![workflow](https://github.com/user-attachments/assets/8bf1941e-8d39-4d80-8e63-9b05cfee6b83)
 
+## 🎬 GUI Demo
+
+![GUI Demo](gui.gif)
 
 ##  🚀 Quick Start
 
