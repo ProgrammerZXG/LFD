@@ -41,7 +41,7 @@ geophysical regularization during generation, while supporting efficient large-p
 python gui/app.py
 ```
 
-![GUI Demo](gui.gif)
+![GUI Demo](<img width="1262" height="660" alt="gui" src="https://github.com/user-attachments/assets/2b98b99b-6639-4a3b-b8e2-cb3e6b178798" />)
 
 > To launch the interactive GUI, run `python gui/app.py` from the repository root. See [`gui/README.md`](gui/README.md) for details.
 
