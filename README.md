@@ -103,9 +103,7 @@ bash train.sh
 
 | Model | VAE | Diffusion | Total |
 |-------|-----|-----------|-------|
-| LFD (ViT-B/32) | – | 145.42 M | **145.42 M** |
-
-The pretrained model is available at [USTC](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a).
+| [LFD (ViT-B/32)](https://pan.ustc.edu.cn/share/index/596ae4b2eb044fc6a23a) | – | 145.42 M | **145.42 M** |
 
 ## :bookmark: Citation
 @Article{egusphere-2026-1087,
