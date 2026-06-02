@@ -667,7 +667,12 @@ class LFDApp(tk.Tk):
         self._raw_preds = list(raw_preds)
         self._cond_arrays = cond_data
 
-        cols = 4
+        # Auto columns based on available width (each thumbnail is 256+8px)
+        panel_width = self.result_canvas.winfo_width()
+        if panel_width < 100:
+            panel_width = 800  # fallback before widget is drawn
+        cols = max(1, panel_width // (256 + 12))
+
         for i, img in enumerate(tk_images):
             r, c = divmod(i, cols)
             frm = tk.Frame(self.result_inner, bg=self._BG,
