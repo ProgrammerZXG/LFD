@@ -37,8 +37,50 @@ geophysical regularization during generation, while supporting efficient large-p
 
 ##  🚀 Quick Start
 
+### 1. Install Dependencies
+
+Clone the repository and create the conda environment:
+
+```bash
+git clone https://github.com/ProgrammerZXG/LFD.git
+cd LFD
+conda env create -f environment.yaml
+conda activate jit
+```
+
+### 2. Download Pretrained Model
+
+Download the pretrained model weights from [Google Drive](https://drive.google.com/drive/folders/1hxoQLBrOPhNTyuqPK83u7eh2reJ8nEMC?usp=drive_link) and place the checkpoint under the `model/` directory:
+
+```
+LFD/
+└── model/
+    └── LFD_test/
+        └── checkpoint-last.pth
+```
+
+A sample test input is provided in `test_data/test.npz`.
+
+### 3. Run Inference
+
+```bash
+python inference.py
+```
+
+By default, this runs inference on `test_data/test.npz` using the model at `model/LFD_test` and saves results to `output/`. You can customize the behavior with optional arguments:
+
+```bash
+python inference.py \
+    --input ./test_data/test.npz \
+    --ckpt ./model/LFD_test \
+    --out ./output \
+    --num_samples 20 \
+    --cfg 2.0
+```
+
 ## 🧠 Model
-Coming soon.
+
+The pretrained model is available at [Google Drive](https://drive.google.com/drive/folders/1hxoQLBrOPhNTyuqPK83u7eh2reJ8nEMC?usp=drive_link).
 
 ## :bookmark: Citation
 @Article{egusphere-2026-1087,

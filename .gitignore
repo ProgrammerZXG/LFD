@@ -1,0 +1,18 @@
+# Model weights
+*.pth
+*.pt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Output
+output/
+
+# Misc
+.DS_Store
+*.ipynb_checkpoints

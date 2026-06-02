@@ -19,168 +19,112 @@ from torch.utils.data import Dataset
 from typing import List, Union
 import glob
 
-
-def parse_condition_keys(raw_cond_arg):
+def normalize_cond_args(raw_cond):
     """
-    Parse the --cond command-line argument into a list of key strings.
-
-    Supports the following input formats:
-        --cond fx hrz           -> ['fx', 'hrz']  (multiple separate args)
-        --cond "fx,hrz"         -> ['fx', 'hrz']  (comma-separated single string)
-        CONDITION="fx","hrz"    -> ['fx', 'hrz']  (shell variable expansion)
-        --cond "[fx, hrz]"      -> ['fx', 'hrz']  (bracket-wrapped format)
-
-    Args:
-        raw_cond_arg: Raw argument received by nargs='+' (list or str)
-
-    Returns:
-        List[str] of condition key strings
+    Normalize --cond argument to a list of keys.
+    Supports usages like:
+        --cond fx hrz
+        --cond "fx,hrz"
+        CONDITION="fx","hrz"; --cond ${CONDITION}
     """
-    if isinstance(raw_cond_arg, list):
-        if len(raw_cond_arg) == 1:
-            # Single string element; may be "fx,hrz" or "[fx,hrz]" format
-            single_str = raw_cond_arg[0]
+    if isinstance(raw_cond, list):
+        if len(raw_cond) == 1:
+            s = raw_cond[0]
         else:
-            # Already a multi-element list; return as-is
-            return raw_cond_arg
+            return raw_cond
     else:
-        single_str = raw_cond_arg
+        s = raw_cond
 
-    single_str = single_str.strip()
+    s = s.strip()
 
-    # Strip optional square brackets
-    if single_str.startswith('[') and single_str.endswith(']'):
-        single_str = single_str[1:-1]
+    if s.startswith('[') and s.endswith(']'):
+        s = s[1:-1]
 
-    # Remove quotation marks
-    single_str = single_str.replace('"', '').replace("'", '')
+    s = s.replace('"', '').replace("'", '')
 
-    # Normalize separators and split
-    parsed_keys = []
-    for key_token in single_str.replace(',', ' ').split():
-        key_token = key_token.strip()
-        if key_token:
-            parsed_keys.append(key_token)
+    tokens = []
+    for tok in s.replace(',', ' ').split():
+        tok = tok.strip()
+        if tok:
+            tokens.append(tok)
 
-    return parsed_keys
+    return tokens
 
-
-class GeoSeismicDataset(Dataset):
-    """
-    Geological seismic dataset that loads training/validation samples from NPZ files.
-
-    Each NPZ file contains multiple geological arrays, such as:
-        - 'rgt' : Relative Geologic Time (training target)
-        - 'fx'  : Fault map (condition input)
-        - 'hrz' : Horizon picks (condition input)
-        - 'sx'  : Seismic amplitude (optional condition)
-        - 'imp' : Acoustic impedance (optional condition)
-
-    All arrays are normalized to [-1, 1]. Optional random horizontal flip augmentation.
-    """
+class GeoDataset(Dataset):
 
     def __init__(
         self,
-        data_root: str,
+        data_path: str,
         target_key: str,
-        condition_keys: Union[str, List[str]],
-        use_random_crop: bool = False,
-        use_random_flip: bool = False,
+        cond_key: Union[str, List[str]], 
+        random_crop: bool = False,
+        random_flip: bool = False,
         normalize: bool = True,
         split: str = 'train',
         num_channels: int = 1
     ):
-        """
-        Args:
-            data_root:       Dataset root directory (expects train/ and valid/ subdirectories)
-            target_key:      NPZ key for the prediction target (e.g., 'rgt')
-            condition_keys:  NPZ key or list of keys for condition inputs (e.g., ['fx', 'hrz'])
-            use_random_crop: Whether to apply random cropping (reserved; not yet implemented)
-            use_random_flip: Whether to apply random horizontal flip augmentation
-            normalize:       Whether to normalize data to [-1, 1]
-            split:           Data split, either 'train' or 'valid'
-            num_channels:    Number of input channels (1 = single-channel grayscale)
-        """
+
         self.target_key = target_key
-        self.condition_keys = condition_keys
-        self.use_random_crop = use_random_crop
-        self.use_random_flip = use_random_flip
+        self.cond_key = cond_key
+        self.random_crop = random_crop
+        self.random_flip = random_flip
         self.normalize = normalize
         self.split = split
-        self.num_channels = num_channels
+        self.num_channels = num_channels 
 
-        # All supported geological data keys
-        self.supported_data_keys = ['sx', 'rgt', 'fx', 'imp', 'hrz']
+        self.valid_keys = ['sx', 'rgt', 'fx', 'imp', 'hrz']
 
-        # Collect all NPZ file paths
-        self.npz_file_paths = self._collect_npz_files(data_root, split)
+        self.npz_files = self._collect_files(data_path, split)
+        
+        if len(self.npz_files) == 0:
+            raise ValueError(f"No NPZ files found in {data_path}")
+        
+        print(f"[GeoDataset] Loaded {len(self.npz_files)} {split} samples")
+        print(f"[GeoDataset] Number of channels: {self.num_channels}")
+        print(f"[GeoDataset] Target key: {self.target_key}")
+        print(f"[GeoDataset] Condition key(s): {self.cond_key}")
 
-        if len(self.npz_file_paths) == 0:
-            raise ValueError(f"No NPZ files found in {data_root}/{split}")
+    def _collect_files(self, data_path: str, split: str) -> List[str]:
+        data_path = Path(data_path)
+        split_dir = data_path / split
 
-        print(f"[GeoSeismicDataset] Loaded {len(self.npz_file_paths)} {split} samples")
-        print(f"[GeoSeismicDataset] Number of channels: {self.num_channels}")
-        print(f"[GeoSeismicDataset] Target key: {self.target_key}")
-        print(f"[GeoSeismicDataset] Condition key(s): {self.condition_keys}")
+        npz_files = sorted(glob.glob(str(split_dir / "*.npz")))
+        npz_files += sorted(glob.glob(str(split_dir / "*.NPZ")))
 
-    def _collect_npz_files(self, data_root: str, split: str) -> List[str]:
-        """
-        Collect all NPZ file paths under the specified split directory.
-        Supports both .npz and .NPZ file extensions.
-        """
-        split_dir = Path(data_root) / split
-        file_paths = sorted(glob.glob(str(split_dir / "*.npz")))
-        file_paths += sorted(glob.glob(str(split_dir / "*.NPZ")))
-        return file_paths
-
+        # If not found in split_dir, do not fallback to root directory (root directory does not have npz either)
+        return npz_files
+    
     def __len__(self) -> int:
-        return len(self.npz_file_paths)
+        return len(self.npz_files)
 
-    def _load_and_normalize_array(self, npz_path: str, key: str) -> torch.Tensor:
-        """
-        Load a single array from an NPZ file, optionally normalize it,
-        and return as a (1, H, W) float Tensor.
-        """
-        npz_data = np.load(npz_path)
-        array = npz_data[key]
+    def _load_single(self, npz_path: str, key: str):
+        data = np.load(npz_path)
+        array = data[key]
 
         if self.normalize:
-            array = self._normalize_to_minus_one_one(array, key=key)
+            array = self._normalize(array, key=key)
 
-        tensor = torch.from_numpy(array).float().unsqueeze(0)  # (1, H, W)
+        tensor = torch.from_numpy(array).float().unsqueeze(0)  # [1, H, W]
         return tensor
 
-    def _load_target_with_channel_expand(self, npz_path: str, key: str):
-        """
-        Load the target array and optionally expand to num_channels.
-
-        Returns:
-            tensor: (num_channels, H, W)
-            label:  class label tensor (fixed to 0 for single-class tasks)
-        """
-        tensor = self._load_and_normalize_array(npz_path, key)  # (1, H, W)
+    def _load_data(self, npz_path: str, key: str):
+        tensor = self._load_single(npz_path, key)  # [1,H,W]
 
         if self.num_channels > 1:
             tensor = tensor.repeat(self.num_channels, 1, 1)
 
-        label = torch.tensor(0).long()  # Single-class task; label always 0
+        # label = torch.tensor(self.valid_keys.index(key)).long()
+        label = torch.tensor(0).long()
         return tensor, label
-
-    def _normalize_to_minus_one_one(self, array: np.ndarray, key=None) -> np.ndarray:
-        """
-        Normalize an array to [-1, 1] using key-specific strategies.
-
-        - 'fx' (fault):           non-zero -> +1, zero -> -1 (binarization)
-        - 'rgt' (relative time):  min-max linear stretch to [-1, 1]
-        - 'hrz' (horizon):        min-max linear stretch to [-1, 1]
-        """
+    
+    def _normalize(self, array: np.ndarray, key=None) -> np.ndarray:
+        """Normalize to [-1, 1]"""
+        
         if key == "fx":
-            # Fault binarization: fault -> +1, background -> -1
             normalized = np.full_like(array, -1.0, dtype=np.float32)
-            normalized[array != 0] = 1.0
+            normalized[array!=0] = 1.0
             return normalized
-        elif key in ("rgt", "hrz"):
-            # Linear min-max stretch to [-1, 1]
+        elif key == "rgt" or key == "hrz": 
             min_val = array.min()
             max_val = array.max()
             if max_val - min_val > 1e-6:
@@ -189,217 +133,170 @@ class GeoSeismicDataset(Dataset):
                 array = np.full_like(array, -1.0, dtype=np.float32)
             return array
 
-    def _load_horizon_as_sparse_rgt(self, npz_path: str) -> torch.Tensor:
+    def _load_hrz_as_rgt(self, npz_path: str):
         """
-        Build a sparse RGT horizon map from 'rgt' and 'hrz' arrays:
-        - Pixels with valid horizon labels receive the corresponding RGT value
-        - All other pixels are set to -1 (background / no constraint)
-
-        This representation converts horizon annotations into sparse RGT supervision
-        compatible with the horizon_loss (bg_threshold = -1.0).
-
-        Returns:
-            Tensor of shape (1, H, W)
+        Construct a "sparse RGT horizon map":
+        - rgt: Full field RGT
+        - hrz: Horizon pick mask / id
+        Assign RGT values at locations where hrz has values;
+        Background is -1 (convenient for use with bg_thresh=-1.0).
+        Returns tensor: [1, H, W]
         """
-        npz_data = np.load(npz_path)
-        rgt_array = npz_data["rgt"].astype(np.float32)   # (H, W)
-        hrz_array = npz_data["hrz"].astype(np.float32)   # (H, W), horizon id map
+        data = np.load(npz_path)
+        rgt = data["rgt"].astype(np.float32)   # [H, W]
+        hrz = data["hrz"].astype(np.float32)   # [H, W]
 
-        # Normalize RGT consistent with the training target
+        # First normalize rgt (consistent with target)
         if self.normalize:
-            rgt_array = self._normalize_to_minus_one_one(rgt_array, key="rgt")
+            rgt = self._normalize(rgt, key="rgt")
 
-        # Initialize sparse map to -1 (no constraint everywhere)
-        sparse_rgt_map = np.full_like(rgt_array, -1.0, dtype=np.float32)
+        # Fill background with -1.0, so horizon_loss can filter using bg_thresh=-1.0
+        hrz_rgt = np.full_like(rgt, -1.0, dtype=np.float32)
 
-        # horizon id > 0 indicates a valid horizon annotation
-        horizon_valid_mask = hrz_array > 0
-        # Fill valid horizon positions with the corresponding RGT value
-        sparse_rgt_map[horizon_valid_mask] = rgt_array[horizon_valid_mask]
+        # Here the mask can be adjusted according to your hrz definition:
+        # If hrz==0 means background, >0 is horizon; use >0
+        mask = hrz > 0
 
-        return torch.from_numpy(sparse_rgt_map).float().unsqueeze(0)  # (1, H, W)
+        # Use RGT values at horizon locations
+        hrz_rgt[mask] = rgt[mask]
 
+        tensor = torch.from_numpy(hrz_rgt).float().unsqueeze(0)  # [1, H, W]
+        return tensor
+    
     def __getitem__(self, idx):
-        """
-        Returns a single sample:
-            target_tensor:    (num_channels, H, W), normalized target image
-            class_label:      scalar long tensor, class label
-            condition_tensor: (C_cond, H, W), condition maps; C_cond = len(condition_keys)
-        """
-        npz_path = self.npz_file_paths[idx]
+        npz_path = self.npz_files[idx]
 
-        # ---- Load target ----
-        target_tensor, class_label = self._load_target_with_channel_expand(
-            npz_path, self.target_key
-        )
+        # ---- target ----
+        x, label = self._load_data(npz_path, self.target_key)  # [C_x, H, W]
 
-        # ---- Load conditions ----
-        if isinstance(self.condition_keys, (list, tuple)):
-            # Multiple conditions: load individually and concatenate along channel dim
-            single_condition_list = []
-            for cond_key in self.condition_keys:
-                if cond_key == "hrz":
-                    # Special handling: convert horizon picks to sparse RGT map
-                    cond_tensor = self._load_horizon_as_sparse_rgt(npz_path)  # (1, H, W)
+        # ---- condition ----
+        if isinstance(self.cond_key, (list, tuple)):
+            cond_list = []
+            for ck in self.cond_key:
+                if ck == "hrz":
+                    # Special handling: take rgt value at horizon location, -1 elsewhere
+                    c = self._load_hrz_as_rgt(npz_path)   # [1, H, W]
                 else:
-                    cond_tensor = self._load_and_normalize_array(npz_path, cond_key)  # (1, H, W)
-                single_condition_list.append(cond_tensor)
-            condition_tensor = torch.cat(single_condition_list, dim=0)  # (C_cond, H, W)
+                    c = self._load_single(npz_path, ck)   # [1, H, W]
+                cond_list.append(c)
+            cond = torch.cat(cond_list, dim=0)            # [C_cond, H, W]
         else:
-            # Single condition
-            if self.condition_keys == "hrz":
-                condition_tensor = self._load_horizon_as_sparse_rgt(npz_path)
+            if self.cond_key == "hrz":
+                cond = self._load_hrz_as_rgt(npz_path)
             else:
-                condition_tensor = self._load_and_normalize_array(npz_path, self.condition_keys)
+                cond = self._load_single(npz_path, self.cond_key)  # [1, H, W]
                 if self.num_channels > 1:
-                    condition_tensor = condition_tensor.repeat(self.num_channels, 1, 1)
+                    cond = cond.repeat(self.num_channels, 1, 1)
 
-        # ---- Random horizontal flip augmentation (50% probability) ----
-        if self.use_random_flip:
+        if self.random_flip:
             if torch.rand(1) < 0.5:
-                target_tensor = torch.flip(target_tensor, dims=[2])
-                condition_tensor = torch.flip(condition_tensor, dims=[2])
+                x = torch.flip(x, dims=[2]) 
+                cond = torch.flip(cond, dims=[2])
 
-        return target_tensor, class_label, condition_tensor
+        return x, label, cond
 
-
-def build_argument_parser():
-    """
-    Build the command-line argument parser covering model architecture,
-    training hyperparameters, ODE sampling, dataset, checkpointing,
-    and distributed training settings.
-    """
+def get_args_parser():
     parser = argparse.ArgumentParser('LFD', add_help=False)
 
-    # ---- Model architecture ----
+    # architecture
     parser.add_argument('--model', default='LFD-B/32', type=str, metavar='MODEL',
-                        help='Model variant name (e.g., LFD-B/32)')
-    parser.add_argument('--img_size', default=512, type=int,
-                        help='Input image size (square)')
-    parser.add_argument('--attn_dropout', type=float, default=0.0,
-                        help='Attention weight dropout probability')
-    parser.add_argument('--proj_dropout', type=float, default=0.0,
-                        help='Projection layer dropout probability')
+                        help='Name of the model to train')
+    parser.add_argument('--img_size', default=512, type=int, help='Image size')
+    parser.add_argument('--attn_dropout', type=float, default=0.0, help='Attention dropout rate')
+    parser.add_argument('--proj_dropout', type=float, default=0.0, help='Projection dropout rate')
 
-    # ---- Training hyperparameters ----
-    parser.add_argument('--epochs', default=1200, type=int,
-                        help='Total number of training epochs')
+    # training
+    parser.add_argument('--epochs', default=1200, type=int)
     parser.add_argument('--warmup_epochs', type=int, default=10, metavar='N',
-                        help='Number of epochs for linear LR warmup')
+                        help='Epochs to warm up LR')
     parser.add_argument('--batch_size', default=128, type=int,
-                        help='Per-GPU batch size (effective batch = batch_size * num_GPUs)')
+                        help='Batch size per GPU (effective batch size = batch_size * # GPUs)')
     parser.add_argument('--lr', type=float, default=None, metavar='LR',
-                        help='Absolute learning rate (derived from blr if not set)')
+                        help='Learning rate (absolute)')
     parser.add_argument('--blr', type=float, default=1e-4, metavar='LR',
-                        help='Base learning rate: absolute_lr = blr * total_batch_size / 256')
+                        help='Base learning rate: absolute_lr = base_lr * total_batch_size / 256')
     parser.add_argument('--min_lr', type=float, default=0., metavar='LR',
-                        help='Minimum LR for cosine annealing schedule')
+                        help='Minimum LR for cyclic schedulers that hit 0')
     parser.add_argument('--lr_schedule', type=str, default='constant',
-                        help='LR schedule strategy: "constant" or "cosine"')
+                        help='Learning rate schedule')
     parser.add_argument('--weight_decay', type=float, default=0.0,
-                        help='Weight decay coefficient (bias and norm layers are exempt)')
+                        help='Weight decay (default: 0.0)')
     parser.add_argument('--ema_decay1', type=float, default=0.9999,
-                        help='First EMA decay rate (used by default during sampling)')
+                        help='The first ema to track. Use the first ema for sampling by default.')
     parser.add_argument('--ema_decay2', type=float, default=0.9996,
-                        help='Second EMA decay rate (backup)')
-    parser.add_argument('--P_mean', default=-0.8, type=float,
-                        help='Mean of logit-normal timestep sampling distribution')
-    parser.add_argument('--P_std', default=0.8, type=float,
-                        help='Std of logit-normal timestep sampling distribution')
-    parser.add_argument('--noise_scale', default=1.0, type=float,
-                        help='Initial noise scaling factor')
-    parser.add_argument('--t_eps', default=5e-2, type=float,
-                        help='Timestep lower bound (prevents division by zero)')
-    parser.add_argument('--label_drop_prob', default=0.1, type=float,
-                        help='CFG label dropout probability during training')
-    parser.add_argument('--seed', default=0, type=int,
-                        help='Random seed (each process adds its rank for diversity)')
+                        help='The second ema to track')
+    parser.add_argument('--P_mean', default=-0.8, type=float)
+    parser.add_argument('--P_std', default=0.8, type=float)
+    parser.add_argument('--noise_scale', default=1.0, type=float)
+    parser.add_argument('--t_eps', default=5e-2, type=float)
+    parser.add_argument('--label_drop_prob', default=0.1, type=float)
+
+    parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
-                        help='Starting epoch index (used when resuming training)')
-    parser.add_argument('--num_workers', default=12, type=int,
-                        help='Number of DataLoader worker processes')
+                        help='Starting epoch')
+    parser.add_argument('--num_workers', default=12, type=int)
     parser.add_argument('--pin_mem', action='store_true',
                         help='Pin CPU memory in DataLoader for faster GPU transfers')
     parser.add_argument('--no_pin_mem', action='store_false', dest='pin_mem')
     parser.set_defaults(pin_mem=True)
 
-    # ---- ODE sampling parameters ----
+    # sampling
     parser.add_argument('--sampling_method', default='heun', type=str,
-                        help='ODE integration method: "euler" or "heun"')
+                        help='ODE samping method')
     parser.add_argument('--num_sampling_steps', default=50, type=int,
-                        help='Number of ODE integration steps')
+                        help='Sampling steps')
     parser.add_argument('--cfg', default=1.0, type=float,
-                        help='Classifier-Free Guidance scale')
+                        help='Classifier-free guidance factor')
     parser.add_argument('--interval_min', default=0.0, type=float,
-                        help='Lower bound of the timestep interval for CFG')
+                        help='CFG interval min')
     parser.add_argument('--interval_max', default=1.0, type=float,
-                        help='Upper bound of the timestep interval for CFG')
+                        help='CFG interval max')
     parser.add_argument('--num_images', default=50000, type=int,
-                        help='Maximum number of images to generate during evaluation')
+                        help='Number of images to generate')
     parser.add_argument('--eval_freq', type=int, default=40,
-                        help='Online evaluation frequency (every N epochs)')
-    parser.add_argument('--online_eval', action='store_true',
-                        help='Enable online evaluation interleaved with training')
-    parser.add_argument('--evaluate_gen', action='store_true',
-                        help='Run generation-only evaluation (no training); requires --resume')
+                        help='Frequency (in epochs) for evaluation')
+    parser.add_argument('--online_eval', action='store_true')
+    parser.add_argument('--evaluate_gen', action='store_true')
     parser.add_argument('--gen_bsz', type=int, default=256,
-                        help='Batch size for generation during evaluation')
+                        help='Generation batch size')
 
-    # ---- Dataset ----
+    # dataset
     parser.add_argument('--data_path', default='./data/imagenet', type=str,
-                        help='Dataset root directory (expects train/ and valid/ subdirectories)')
-    parser.add_argument('--class_num', default=1, type=int,
-                        help='Number of classes (typically 1 for geological tasks)')
+                        help='Path to the dataset')
+    parser.add_argument('--class_num', default=1, type=int)
 
-    # ---- Checkpointing ----
+    # checkpointing
     parser.add_argument('--output_dir', default='./output_dir',
-                        help='Output directory for checkpoints and TensorBoard logs')
+                        help='Directory to save outputs (empty for no saving)')
     parser.add_argument('--resume', default='',
-                        help='Directory containing checkpoint-last.pth to resume from')
+                        help='Folder that contains checkpoint to resume from')
     parser.add_argument('--save_last_freq', type=int, default=5,
-                        help='Frequency (epochs) for saving checkpoint-last.pth (rolling)')
-    parser.add_argument('--log_freq', default=100, type=int,
-                        help='TensorBoard logging frequency (every N steps)')
+                        help='Frequency (in epochs) to save checkpoints')
+    parser.add_argument('--log_freq', default=100, type=int)
     parser.add_argument('--device', default='cuda',
-                        help='Training / testing device: "cuda" or "cpu"')
+                        help='Device to use for training/testing')
 
-    # ---- Distributed training ----
+    # distributed training
     parser.add_argument('--world_size', default=1, type=int,
-                        help='Total number of distributed processes')
-    parser.add_argument('--local_rank', default=-1, type=int,
-                        help='Local rank of the current process')
-    parser.add_argument('--dist_on_itp', action='store_true',
-                        help='Use ITP cluster distributed mode (OMPI env vars)')
+                        help='Number of distributed processes')
+    parser.add_argument('--local_rank', default=-1, type=int)
+    parser.add_argument('--dist_on_itp', action='store_true')
     parser.add_argument('--dist_url', default='env://',
-                        help='init_method URL for distributed training')
-
-    # ---- Model input / condition settings ----
+                        help='URL used to set up distributed training')
     parser.add_argument('--in_channels', default=1, type=int,
-                        help='Number of input channels for the target image')
+                        help='Number of input channels')
     parser.add_argument('--cond_in_ch', default=1, type=int,
-                        help='Number of channels per condition input (ControlNet branch)')
+                        help='Number of condition channels for ControlNet branch')
     parser.add_argument('--pretrained_base', default='', type=str,
-                        help='Path to a pretrained checkpoint for transfer learning')
-    parser.add_argument('--cond', nargs='+', default=['fx', 'hrz'],
-                        help='Condition key list, e.g., fx hrz')
+                        help='path to checkpoint-last.pth')
+    parser.add_argument('--cond', nargs='+', default=['fx','hrz'],
+                        help='Condition keys for ControlNet branch, e.g., fx hrz')
     parser.add_argument('--target', default='rgt', type=str,
-                        help='NPZ key of the training target (e.g., rgt)')
-
+                        help='Condition key for ControlNet branch')
     return parser
 
 
 def main(args):
-    """
-    Main training / evaluation function.
-
-    Workflow:
-    1. Initialize distributed environment
-    2. Build training dataset and DataLoader
-    3. Build DenoiserFH model and wrap with DDP
-    4. Configure optimizer and learning rate schedule
-    5. Optionally resume from checkpoint or initialize EMA from scratch
-    6. Run training loop with periodic checkpointing and optional online evaluation
-    """
     torch.set_float32_matmul_precision('high')
 
     misc.init_distributed_mode(args)
@@ -408,214 +305,190 @@ def main(args):
 
     device = torch.device(args.device)
 
-    # Each process uses a distinct random seed (seed + rank)
-    per_process_seed = args.seed + misc.get_rank()
-    torch.manual_seed(per_process_seed)
-    np.random.seed(per_process_seed)
+    # Set seeds for reproducibility
+    seed = args.seed + misc.get_rank()
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
-    cudnn.benchmark = True  # Enable cuDNN auto-tuner for fixed input sizes
+    cudnn.benchmark = True
 
-    num_distributed_tasks = misc.get_world_size()
-    current_process_rank = misc.get_rank()
+    num_tasks = misc.get_world_size()
+    global_rank = misc.get_rank()
 
-    # ---- Initialize TensorBoard (main process only) ----
-    if current_process_rank == 0 and args.output_dir is not None:
+    # Set up TensorBoard logging (only on main process)
+    if global_rank == 0 and args.output_dir is not None:
         os.makedirs(args.output_dir, exist_ok=True)
-        tensorboard_writer = SummaryWriter(log_dir=args.output_dir)
+        log_writer = SummaryWriter(log_dir=args.output_dir)
     else:
-        tensorboard_writer = None
+        log_writer = None
 
-    # ---- Build training dataset ----
-    train_dataset = GeoSeismicDataset(
-        data_root=args.data_path,
+    # # Data augmentation transforms
+    # transform_train = transforms.Compose([
+    #     transforms.Lambda(lambda img: center_crop_arr(img, args.img_size)),
+    #     transforms.RandomHorizontalFlip(),
+    #     transforms.PILToTensor()
+    # ])
+
+    # dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
+    # print(dataset_train)
+
+    dataset_train = GeoDataset(
+        data_path=args.data_path,
         target_key=args.target,
-        condition_keys=args.cond,
-        use_random_crop=False,
-        use_random_flip=True,    # Enable random horizontal flip augmentation
-        normalize=True,
-        split='train',
-        num_channels=1
+        cond_key=args.cond,
+        random_crop=False,  # Enable random crop as needed
+        random_flip=True,  # Enable random flip as needed
+        normalize=True,  # Enable normalization
+        split='train',  # Load training set
+        num_channels=1  # Single channel data
     )
 
-    # Distributed sampler: each process receives a distinct data subset
-    train_sampler = torch.utils.data.DistributedSampler(
-        train_dataset,
-        num_replicas=num_distributed_tasks,
-        rank=current_process_rank,
-        shuffle=True
+    sampler_train = torch.utils.data.DistributedSampler(
+        dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
     )
-    print("Train sampler:", train_sampler)
+    print("Sampler_train =", sampler_train)
 
-    train_data_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        sampler=train_sampler,
+    data_loader_train = torch.utils.data.DataLoader(
+        dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=True
     )
 
-    # ---- torch.compile configuration ----
     torch._dynamo.config.cache_size_limit = 128
     torch._dynamo.config.optimize_ddp = False
 
-    # ---- Build denoiser model ----
-    denoiser_model = Denoiser(args)
-    print("Model:", denoiser_model)
-    num_trainable_params = sum(p.numel() for p in denoiser_model.parameters() if p.requires_grad)
-    print("Trainable parameters: {:.6f}M".format(num_trainable_params / 1e6))
+    # Create denoiser
+    model = Denoiser(args)
 
-    denoiser_model.to(device)
+    print("Model =", model)
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print("Number of trainable parameters: {:.6f}M".format(n_params / 1e6))
 
-    # ---- Compute effective learning rate ----
-    effective_batch_size = args.batch_size * misc.get_world_size()
-    if args.lr is None:
-        # Linear scaling rule: absolute_lr = blr * total_batch_size / 256
-        args.lr = args.blr * effective_batch_size / 256
+    model.to(device)
 
-    print("Base lr (blr): {:.2e}".format(args.lr * 256 / effective_batch_size))
-    print("Actual lr:     {:.2e}".format(args.lr))
-    print("Effective batch size: %d" % effective_batch_size)
+    eff_batch_size = args.batch_size * misc.get_world_size()
+    if args.lr is None:  # only base_lr (blr) is specified
+        args.lr = args.blr * eff_batch_size / 256
 
-    # ---- Wrap with DDP ----
-    ddp_model = torch.nn.parallel.DistributedDataParallel(
-        denoiser_model, device_ids=[args.gpu]
-    )
-    model_core = ddp_model.module  # Unwrapped model (for EMA updates, saving, etc.)
+    print("Base lr: {:.2e}".format(args.lr * 256 / eff_batch_size))
+    print("Actual lr: {:.2e}".format(args.lr))
+    print("Effective batch size: %d" % eff_batch_size)
 
-    # ---- Optimizer (bias and norm layers excluded from weight decay) ----
-    param_groups = misc.add_weight_decay(model_core, args.weight_decay)
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+    model_without_ddp = model.module
+
+    # Set up optimizer with weight decay adjustment for bias and norm layers
+    param_groups = misc.add_weight_decay(model_without_ddp, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
 
-    # ---- Load checkpoint or initialize EMA from scratch ----
-    checkpoint_file = os.path.join(args.resume, "checkpoint-last.pth") if args.resume else None
-    if checkpoint_file and os.path.exists(checkpoint_file):
-        # Resume: load model weights, optimizer state, and EMA parameters
-        saved_checkpoint = torch.load(checkpoint_file, map_location='cpu', weights_only=False)
-        model_core.load_state_dict(saved_checkpoint['model'])
+    # Resume from checkpoint if provided
+    checkpoint_path = os.path.join(args.resume, "checkpoint-last.pth") if args.resume else None
+    if checkpoint_path and os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+        model_without_ddp.load_state_dict(checkpoint['model'])
 
-        ema_state1 = saved_checkpoint['model_ema1']
-        ema_state2 = saved_checkpoint['model_ema2']
-        # Load EMA parameters to GPU
-        model_core.ema_params1 = [ema_state1[name].cuda() for name, _ in model_core.named_parameters()]
-        model_core.ema_params2 = [ema_state2[name].cuda() for name, _ in model_core.named_parameters()]
+        ema_state_dict1 = checkpoint['model_ema1']
+        ema_state_dict2 = checkpoint['model_ema2']
+        model_without_ddp.ema_params1 = [ema_state_dict1[name].cuda() for name, _ in model_without_ddp.named_parameters()]
+        model_without_ddp.ema_params2 = [ema_state_dict2[name].cuda() for name, _ in model_without_ddp.named_parameters()]
         print("Resumed checkpoint from", args.resume)
 
-        if 'optimizer' in saved_checkpoint and 'epoch' in saved_checkpoint:
-            optimizer.load_state_dict(saved_checkpoint['optimizer'])
-            args.start_epoch = saved_checkpoint['epoch'] + 1
-            print("Loaded optimizer state; resuming from epoch {}".format(args.start_epoch))
-        del saved_checkpoint
+        if 'optimizer' in checkpoint and 'epoch' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            args.start_epoch = checkpoint['epoch'] + 1
+            print("Loaded optimizer & scaler state!")
+        del checkpoint
     else:
-        # Train from scratch: initialize EMA from current parameters
-        model_core.ema_params1 = copy.deepcopy(list(model_core.parameters()))
-        model_core.ema_params2 = copy.deepcopy(list(model_core.parameters()))
+        model_without_ddp.ema_params1 = copy.deepcopy(list(model_without_ddp.parameters()))
+        model_without_ddp.ema_params2 = copy.deepcopy(list(model_without_ddp.parameters()))
         print("Training from scratch")
 
-    # ---- Generation-only evaluation mode ----
+    # Evaluate generation (use validation fx as condition)
     if args.evaluate_gen:
-        print("Evaluating checkpoint at epoch {}".format(args.start_epoch))
+        print("Evaluating checkpoint at {} epoch".format(args.start_epoch))
 
-        # Use the validation set as condition input
-        val_dataset = GeoSeismicDataset(
-            data_root=args.data_path,
-            target_key=args.target,
-            condition_keys=args.cond,
-            use_random_crop=False,
-            use_random_flip=False,
+        # —— Use validation set as condition —— 
+        dataset_val = GeoDataset(
+            data_path=args.data_path,
+            target_key=args.target,   # 'rgt'
+            cond_key=args.cond,       # 'fx'
+            random_crop=False,
+            random_flip=False,
             normalize=True,
-            split='valid',  # Must match the validation subdirectory name in your dataset
+            split='valid',            # ★ Change to your validation set subdirectory name: valid / val / test
             num_channels=1,
         )
 
-        val_sampler = torch.utils.data.DistributedSampler(
-            val_dataset,
-            num_replicas=num_distributed_tasks,
-            rank=current_process_rank,
-            shuffle=True
+        sampler_val = torch.utils.data.DistributedSampler(
+            dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
-        print("Val sampler:", val_sampler)
+        print("Sampler_val =", sampler_val)
 
-        val_data_loader = torch.utils.data.DataLoader(
-            val_dataset,
-            sampler=val_sampler,
+        data_loader_val = torch.utils.data.DataLoader(
+            dataset_val, sampler=sampler_val,
             batch_size=args.gen_bsz,
             num_workers=args.num_workers,
             pin_memory=args.pin_mem,
             drop_last=False
         )
 
-        # Evaluate with a fixed random seed for reproducibility
         with torch.random.fork_rng():
-            torch.manual_seed(per_process_seed)
+            torch.manual_seed(seed)
             with torch.no_grad():
-                evaluate_fh(
-                    model_core, args, epoch=0,
-                    val_loader=val_data_loader,
-                    log_writer=tensorboard_writer
-                )
+                # New version evaluate_cond accepts a loader
+                evaluate_fh(model_without_ddp, args, epoch=0,
+                              val_loader=data_loader_val,
+                              log_writer=log_writer)
         return
 
-    # ---- Main training loop ----
+    # Training loop
     print(f"Start training for {args.epochs} epochs")
-    training_start_time = time.time()
-
+    start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):
-        # Set different sampler seed each epoch for data order diversity
         if args.distributed:
-            train_data_loader.sampler.set_epoch(epoch)
+            data_loader_train.sampler.set_epoch(epoch)
 
-        # Train for one epoch
-        train_one_epoch_fh(
-            ddp_model, model_core, train_data_loader,
-            optimizer, device, epoch,
-            log_writer=tensorboard_writer, args=args
-        )
+        train_one_epoch_fh(model, model_without_ddp, data_loader_train, optimizer, device, epoch, log_writer=log_writer, args=args)
 
-        # ---- Periodic checkpoint (checkpoint-last.pth, rolling overwrite) ----
+        # Save checkpoint periodically
         if epoch % args.save_last_freq == 0 or epoch + 1 == args.epochs:
             misc.save_model(
                 args=args,
-                model_without_ddp=model_core,
+                model_without_ddp=model_without_ddp,
                 optimizer=optimizer,
                 epoch=epoch,
                 epoch_name="last"
             )
 
-        # ---- Numbered checkpoint every 100 epochs (for rollback) ----
         if epoch % 100 == 0 and epoch > 0:
             misc.save_model(
                 args=args,
-                model_without_ddp=model_core,
+                model_without_ddp=model_without_ddp,
                 optimizer=optimizer,
                 epoch=epoch
             )
 
-        # ---- Online evaluation (triggered at eval_freq intervals) ----
+        # Perform online evaluation at specified intervals
         if args.online_eval and (epoch % args.eval_freq == 0 or epoch + 1 == args.epochs):
             torch.cuda.empty_cache()
             with torch.no_grad():
-                evaluate_fh(
-                    model_core, args, epoch,
-                    batch_size=args.gen_bsz,
-                    log_writer=tensorboard_writer
-                )
+                evaluate_fh(model_without_ddp, args, epoch, batch_size=args.gen_bsz, log_writer=log_writer)
             torch.cuda.empty_cache()
 
-        # Flush TensorBoard on main process
-        if misc.is_main_process() and tensorboard_writer is not None:
-            tensorboard_writer.flush()
+        if misc.is_main_process() and log_writer is not None:
+            log_writer.flush()
 
-    total_training_time = time.time() - training_start_time
-    total_training_time_str = str(datetime.timedelta(seconds=int(total_training_time)))
-    print('Total training time:', total_training_time_str)
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    print('Training time:', total_time_str)
 
 
 if __name__ == '__main__':
-    args = build_argument_parser().parse_args()
-    # Normalize --cond argument to a standard List[str]
-    args.cond = parse_condition_keys(args.cond)
-    print(f"Parsed condition keys: {args.cond}")
+    args = get_args_parser().parse_args()
+    args.cond = normalize_cond_args(args.cond)
+    print(f"Parsed cond keys: {args.cond}")
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)
