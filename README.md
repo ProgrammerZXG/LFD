@@ -106,6 +106,7 @@ Major Project under the grant 2024ZD1002100.
 Z.G. acknowledges support from the China Scholarship Council 
 under the Joint Ph.D. Program for his mobility scholarship at Université de Lorraine.
 G.C. acknowledges the sponsors of the RING Consortium (ring-team.org/consortium).
+This codebase is built upon [JiT](https://github.com/LTH14/JiT). We thank the authors for their excellent work and open-source contribution.
 
 ## :postbox: Contact
 If you have any questions about this work, 
