@@ -90,7 +90,7 @@ python inference.py \
 
 ### 4. Run Training
 
-To run training, download the dataset from xxx (coming soon) and place it under `training_data/`:
+To run training, download the [dataset](https://doi.org/10.5281/zenodo.20508635) and place it under `training_data/`:
 
 ```
 LFD/
