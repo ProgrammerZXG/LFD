@@ -27,7 +27,7 @@
 ## 📰 News
 - **2026.06.02:** Released [pretrained model and training data](https://doi.org/10.5281/zenodo.20508635); added interactive GUI demo.
 - **2026.04.24:** The article has been preprinted on [egusphere](https://egusphere.copernicus.org/preprints/2026/egusphere-2026-1087/).
-- **2026.02.25:** Initial release of LFD code on [Zenodo](https://zenodo.org/records/18772173).
+- **2026.02.25:** Initial release of LFD code on [Zenodo](https://zenodo.org/records/20508635).
 
 ## ✨ Introduction
 LFD is a latent-compression-free generative diffusion framework for implicit structural modeling. It generates structural models directly in data space, enabling explicit geological constraints and
