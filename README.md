@@ -25,6 +25,7 @@
 
 
 ## 📰 News
+- **2026.08.26:** The paper has been accepted for publication in [Geosci. Model Dev.](https://gmd.copernicus.org/articles/19/7961/2026/)
 - **2026.06.02:** Released [pretrained model and training data](https://doi.org/10.5281/zenodo.20508635); added interactive GUI demo.
 - **2026.04.24:** The article has been preprinted on [egusphere](https://egusphere.copernicus.org/preprints/2026/egusphere-2026-1087/).
 - **2026.02.25:** Initial release of LFD code on [Zenodo](https://zenodo.org/records/20508635).
